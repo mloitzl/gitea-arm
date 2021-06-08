@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitea
+  labels:
+    app: gitea
+    app.kubernetes.io/name: gitea
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitea
+  serviceName: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+        app.kubernetes.io/name: gitea
+    spec:
+      initContainers:
+        - name: init
+          image: "gitea/gitea:1.13.5"
+          command: ["/usr/sbin/init_gitea.sh"]
+          volumeMounts:
+            - name: init
+              mountPath: /usr/sbin
+            - name: config
+              mountPath: /etc/gitea/conf
+            - name: data
+              mountPath: /data
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: gitea
+          image: "gitea/gitea:1.13.5"
+          imagePullPolicy: Always
+          env:
+            # SSH Port values have to be set here as well for openssh configuration
+            - name: SSH_LISTEN_PORT
+              value: "22"
+            - name: SSH_PORT
+              value: "22"
+          ports:
+            - name: ssh
+              containerPort: 22
+            - name: http
+              containerPort: 3000
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 200
+            periodSeconds: 10
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            {}
+          securityContext:
+            {}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: init
+          secret:
+            secretName: gitea-init
+            defaultMode: 0777
+        - name: config
+          secret:
+            secretName: gitea
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+            - "ReadWriteOnce"
+        storageClassName: managed-nfs-storage    
+        resources:
+          requests:
+            storage: "100Gi"

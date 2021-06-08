@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+spec:
+  serviceName: postgresql-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      role: master
+  template:
+    metadata:
+      name: postgresql
+      labels:
+        app.kubernetes.io/name: postgresql
+        role: master
+    spec:      
+      containers:
+        - name: postgresql
+          image: postgres:11.11-alpine
+          imagePullPolicy: "IfNotPresent"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          env:
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: "/postgresql"
+            - name: PGDATA
+              value: "/postgresql/data"
+            - name: POSTGRES_USER
+              value: "gitea"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-password
+                  key: postgresql-password
+            - name: POSTGRES_DB
+              value: "gitea"
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+            - name: POSTGRESQL_ENABLE_TLS
+              value: "no"
+            - name: POSTGRESQL_LOG_HOSTNAME
+              value: "false"
+            - name: POSTGRESQL_LOG_CONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_LOG_DISCONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_PGAUDIT_LOG_CATALOG
+              value: "off"
+            - name: POSTGRESQL_CLIENT_MIN_MESSAGES
+              value: "error"
+            - name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES
+              value: "pgaudit"
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "gitea" -d "dbname=gitea" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "gitea" -d "dbname=gitea" -h 127.0.0.1 -p 5432
+                  [ -f /postgresql/.initialized ]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /postgresql
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        storageClassName: managed-nfs-storage
+        resources:
+          requests:
+            storage: "10Gi"
